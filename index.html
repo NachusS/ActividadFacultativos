@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Dashboard Actividad Facultativos URG</title>
+
+  <!-- CDN SheetJS (XLSX/XLS sin instalar dependencias) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <link rel="stylesheet" href="./styles.css" />
+  <script defer src="./app.js"></script>
+</head>
+<body>
+  <div class="bg-glow" aria-hidden="true">
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+    <div class="blob b3"></div>
+  </div>
+
+  <header>
+    <div class="wrap">
+      <div class="row">
+        <div class="title">
+          <div class="badge" aria-hidden="true">📊</div>
+          <div>
+            <div class="sub">Dashboard</div>
+            <h1>Actividad de Facultativos en Urgencias v.4.1</h1>
+          </div>
+        </div>
+
+        <div class="controls">
+          <span class="pill"><span>Fecha:</span> <b id="pillDate">—</b></span>
+          <span class="pill"><span>Mes:</span> <b id="pillMonth">—</b></span>
+          <span class="pill"><span>Datos:</span> <b id="pillFile">—</b></span>
+
+          <input id="file" class="file" type="file"
+            accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+          <button class="btn" id="btnUpload">⬆️ Cargar CSV/XLSX</button>
+
+          <!-- Toggle pro Dark/Light -->
+          <div class="theme-toggle" title="Cambiar tema" role="group" aria-label="Tema">
+            <span class="theme-icon" aria-hidden="true">🌙</span>
+            <label class="switch" for="themeSwitch">
+              <input id="themeSwitch" type="checkbox" aria-label="Activar modo oscuro" />
+              <span class="slider"></span>
+            </label>
+            <span class="theme-icon" aria-hidden="true">☀️</span>
+          </div>
+
+          <!-- NUEVO: Toggle rango horario por HoraIn -->
+          <button class="btn secondary" id="btnHourMode" title="Filtro horario por HoraIn">🕒 0–23</button>
+
+          <button class="btn secondary" id="btnReset" title="Reset">🔄 Reset</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="row" style="margin-bottom:14px">
+      <div class="tabs">
+        <button class="tab active" id="tabDash">Dashboard</button>
+        <button class="tab" id="tabCal">Calendario</button>
+      </div>
+
+      <div class="selectors">
+        <select class="sel" id="selDate" disabled>
+          <option value="">(Carga un archivo)</option>
+        </select>
+        <select class="sel" id="selDoctor" disabled>
+          <option value="">(Sin datos)</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="emptyState" class="card">
+      <h2 class="h2">Carga un CSV o XLSX para empezar</h2>
+      <p class="muted" style="margin:8px 0 0">
+        Columnas esperadas: <span class="kbd">FECINGRESO</span> <span class="kbd">NOMBMED_RES</span> <span class="kbd">Atendido</span>
+      </p>
+      <div class="divider"></div>
+      <p class="muted2" style="margin:0">
+        Definición: pacientes atendidos por médico y día = conteo de <b class="kbd">Atendido distinto</b>.
+      </p>
+    </div>
+
+    <!-- DASHBOARD -->
+    <section id="viewDash" style="display:none">
+      <div class="card" style="margin-bottom:14px">
+        <div class="row" style="gap:14px">
+          <div>
+            <h2 class="h2">Insights del día</h2>
+            <div class="muted" id="dashSubtitle">—</div>
+          </div>
+          <div class="kpiRow">
+            <span class="pill">👥 Activos: <b id="kpiActive">0</b></span>
+            <span class="pill">🏆 Max/día: <b id="kpiDayMax">0</b></span>
+            <span class="pill">📉 Min/día: <b id="kpiDayMin">0</b></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid g3">
+        <div class="card">
+          <div class="statRow">
+            <div class="icon">👥</div>
+            <div>
+              <div class="lab">Total facultativos (día)</div>
+              <div class="val" id="cardTotalDocs">0</div>
+              <div class="hint">NOMBMED_RES con ≥1 atención</div>
+            </div>
+          </div>
+          <div class="divider"></div>
+          <div class="muted">Top 3 del día</div>
+          <div id="top3" class="top3"></div>
+        </div>
+
+        <div class="card">
+          <div class="statRow">
+            <div class="icon">🏆</div>
+            <div>
+              <div class="lab">Max atendidos (día)</div>
+              <div class="val" id="cardDayMax">0</div>
+              <div class="hint">Máximo por médico en el día</div>
+            </div>
+          </div>
+          <div class="divider"></div>
+          <div class="statRow">
+            <div class="icon">📉</div>
+            <div>
+              <div class="lab">Min atendidos (día)</div>
+              <div class="val" id="cardDayMin">0</div>
+              <div class="hint">Mínimo por médico (activo) en el día</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="statRow">
+            <div class="icon">⭐</div>
+            <div>
+              <div class="lab">Max atendidos (mes)</div>
+              <div class="val" id="cardMonthMax">0</div>
+              <div class="hint" id="hintMonthBest">—</div>
+            </div>
+          </div>
+          <div class="divider"></div>
+          <div class="statRow">
+            <div class="icon">⬇️</div>
+            <div>
+              <div class="lab">Min atendidos (mes)</div>
+              <div class="val" id="cardMonthMin">0</div>
+              <div class="hint" id="hintMonthWorst">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid g2" style="margin-top:14px">
+        <div class="card">
+          <h2 class="h2">Ranking (Top 10)</h2>
+          <div class="muted">Mayor → menor: pacientes atendidos por facultativo</div>
+          <div class="divider"></div>
+          <div class="rankList" id="rankTop10"></div>
+        </div>
+
+        <div class="card">
+          <h2 class="h2">Max/Min del mes</h2>
+          <div class="muted">Extremos del mes seleccionado</div>
+          <div class="divider"></div>
+
+          <div class="grid g2">
+            <div class="subCard">
+              <div class="muted">Máximo (max/día) del mes</div>
+              <div class="val" id="monthDailyMax" style="margin-top:6px">0</div>
+              <div class="muted2" style="margin-top:6px">Mayor número atendido por un médico en un día del mes</div>
+            </div>
+            <div class="subCard">
+              <div class="muted">Mínimo (min/día) del mes</div>
+              <div class="val" id="monthDailyMin" style="margin-top:6px">0</div>
+              <div class="muted2" style="margin-top:6px">Menor número atendido por un médico (activo) en un día del mes</div>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+          <div class="muted">Mejor y peor facultativo del mes (total mensual)</div>
+
+          <div class="grid g2" style="margin-top:10px">
+            <div class="subCard">
+              <div class="muted">Más pacientes</div>
+              <div class="docName" id="monthBestName" style="margin-top:6px">—</div>
+              <div class="muted2" id="monthBestTotal" style="margin-top:6px">Total mes: 0</div>
+            </div>
+            <div class="subCard">
+              <div class="muted">Menos pacientes</div>
+              <div class="docName" id="monthWorstName" style="margin-top:6px">—</div>
+              <div class="muted2" id="monthWorstTotal" style="margin-top:6px">Total mes: 0</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="row">
+          <div>
+            <h2 class="h2">Por facultativo</h2>
+            <div class="muted" id="docSubtitle">—</div>
+          </div>
+          <span class="pill">Mes: <b id="docMonthLabel">—</b></span>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="grid g3">
+          <div class="stack">
+            <div class="subCard">
+              <div class="muted">Días de trabajo (mes)</div>
+              <div class="val" id="docDaysMonth" style="margin-top:6px">0</div>
+              <div class="muted2" id="docTotalMonth" style="margin-top:10px">Total pacientes (mes): 0</div>
+            </div>
+
+            <div class="subCard">
+              <div class="row">
+                <div>
+                  <div class="muted">Max / Min (mes)</div>
+                  <div class="muted2">por día trabajado</div>
+                </div>
+                <span class="pill">⬆️ <b id="docMaxMonth">0</b> · ⬇️ <b id="docMinMonth">0</b></span>
+              </div>
+            </div>
+
+            <div class="subCard">
+              <div class="muted">Resumen global</div>
+              <div class="grid g2" style="margin-top:10px">
+                <div class="miniKpi">
+                  <div class="muted2">Días</div>
+                  <div class="miniKpiVal" id="docDaysAll">0</div>
+                </div>
+                <div class="miniKpi">
+                  <div class="muted2">Total</div>
+                  <div class="miniKpiVal" id="docTotalAll">0</div>
+                </div>
+                <div class="miniKpi">
+                  <div class="muted2">Max/día</div>
+                  <div class="miniKpiVal" id="docMaxAll">0</div>
+                </div>
+                <div class="miniKpi">
+                  <div class="muted2">Min/día</div>
+                  <div class="miniKpiVal" id="docMinAll">0</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="subCard chartCard">
+            <div class="row">
+              <div>
+                <div class="chartTitle">Pacientes por día (mes)</div>
+                <div class="muted2" id="docChartHint">—</div>
+              </div>
+              <span class="pill">Total mes: <b id="docChartTotal">0</b></span>
+            </div>
+            <div class="divider"></div>
+            <div class="chartWrap">
+              <canvas id="chart"></canvas>
+            </div>
+            <div class="muted2" style="margin-top:10px">
+              Nota: conteo basado en <b class="kbd">Atendido distinto</b> por médico y día.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CALENDARIO -->
+    <section id="viewCal" style="display:none">
+      <div class="card">
+        <div class="calHeader">
+          <div>
+            <h2 class="h2">Calendario</h2>
+            <div class="muted">
+              El degradado depende del <b>Total urgencias</b> (pacientes únicos del día).
+              Dentro de cada día verás: <b>Total urgencias</b> (grande) y <b>Max por médico</b> (pequeño).
+            </div>
+          </div>
+          <div class="calNav">
+            <button class="btn" id="btnPrevMonth">←</button>
+            <span class="pill pillCap"><b id="calMonthLabel">—</b></span>
+            <button class="btn" id="btnNextMonth">→</button>
+            <button class="btn secondary" id="btnGoDash">Ver dashboard</button>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="grid g2">
+          <div>
+            <div class="calGrid" id="calDow"></div>
+            <div class="calGrid" id="calGrid"></div>
+          </div>
+
+          <div class="subCard">
+            <h2 class="h2">Ranking del día</h2>
+            <div class="muted2" id="calRankTitle">—</div>
+            <div class="divider"></div>
+            <div class="rankList" id="calRankList"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <div id="footLeft">Sin archivo cargado</div>
+      <div>Definición: pacientes atendidos por médico = conteo de <span class="kbd">Atendido</span> distinto por día.</div>
+    </footer>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <p class="t" id="toastTitle">Aviso</p>
+    <p class="m" id="toastMsg">—</p>
+  </div>
+</body>
+</html>
