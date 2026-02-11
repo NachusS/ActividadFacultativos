@@ -25,7 +25,7 @@
           <div class="badge" aria-hidden="true">📊</div>
           <div>
             <div class="sub">Dashboard</div>
-            <h1>Actividad de Facultativos en Urgencias v.4.2</h1>
+            <h1>Actividad de Facultativos en Urgencias v5.1</h1>
           </div>
         </div>
 
@@ -48,8 +48,8 @@
             <span class="theme-icon" aria-hidden="true">☀️</span>
           </div>
 
-          <!-- Toggle rango horario por HoraIn -->
-          <button class="btn secondary" id="btnHourMode" title="Filtro horario por HoraIn">🕒 0–23</button>
+          <!-- Toggle rango horario por HoraIn / Turno -->
+          <button class="btn secondary" id="btnHourMode" title="Filtro horario por HoraIn">🕒 8–23</button>
 
           <button class="btn secondary" id="btnReset" title="Reset">🔄 Reset</button>
         </div>
@@ -157,7 +157,7 @@
         </div>
       </div>
 
-      <!-- ✅ MOVIDO AQUÍ: Por facultativo (antes estaba debajo de Ranking/MaxMin) -->
+      <!-- Por facultativo (como estaba en v5.0) -->
       <div class="card" style="margin-top:14px">
         <div class="row">
           <div>
@@ -229,48 +229,60 @@
         </div>
       </div>
 
-      <!-- ✅ DESPUÉS: Ranking y Max/Min del mes -->
+      <!-- ✅ v5.1: Izquierda Ranking + Max/Min apilados, Derecha Pacientes Atendidos -->
       <div class="grid g2" style="margin-top:14px">
-        <div class="card">
-          <h2 class="h2">Ranking (Día completo)</h2>
-          <div class="muted">Mayor → menor: pacientes atendidos por facultativo (todos los activos del día)</div>
-          <div class="divider"></div>
-          <div class="rankList" id="rankTop10"></div>
+        <!-- Columna izquierda: stack -->
+        <div class="stack">
+          <div class="card">
+            <h2 class="h2">Ranking (Día completo)</h2>
+            <div class="muted">Mayor → menor: pacientes atendidos por facultativo (todos los activos del día)</div>
+            <div class="divider"></div>
+            <div class="rankList" id="rankTop10"></div>
+          </div>
+
+          <!-- ✅ Movido debajo del ranking -->
+          <div class="card">
+            <h2 class="h2">Max/Min del mes</h2>
+            <div class="muted">Extremos del mes seleccionado</div>
+            <div class="divider"></div>
+
+            <div class="grid g2">
+              <div class="subCard">
+                <div class="muted">Máximo (max/día) del mes</div>
+                <div class="val" id="monthDailyMax" style="margin-top:6px">0</div>
+                <div class="muted2" style="margin-top:6px">Mayor número atendido por un médico en un día del mes</div>
+              </div>
+              <div class="subCard">
+                <div class="muted">Mínimo (min/día) del mes</div>
+                <div class="val" id="monthDailyMin" style="margin-top:6px">0</div>
+                <div class="muted2" style="margin-top:6px">Menor número atendido por un médico (activo) en un día del mes</div>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+            <div class="muted">Mejor y peor facultativo del mes (total mensual)</div>
+
+            <div class="grid g2" style="margin-top:10px">
+              <div class="subCard">
+                <div class="muted">Más pacientes</div>
+                <div class="docName" id="monthBestName" style="margin-top:6px">—</div>
+                <div class="muted2" id="monthBestTotal" style="margin-top:6px">Total mes: 0</div>
+              </div>
+              <div class="subCard">
+                <div class="muted">Menos pacientes</div>
+                <div class="docName" id="monthWorstName" style="margin-top:6px">—</div>
+                <div class="muted2" id="monthWorstTotal" style="margin-top:6px">Total mes: 0</div>
+              </div>
+            </div>
+          </div>
         </div>
 
+        <!-- Columna derecha: ✅ nuevo tablero -->
         <div class="card">
-          <h2 class="h2">Max/Min del mes</h2>
-          <div class="muted">Extremos del mes seleccionado</div>
+          <h2 class="h2">Pacientes Atendidos</h2>
+          <div class="muted" id="patientsSubtitle">Selecciona un facultativo para ver el detalle del día</div>
           <div class="divider"></div>
-
-          <div class="grid g2">
-            <div class="subCard">
-              <div class="muted">Máximo (max/día) del mes</div>
-              <div class="val" id="monthDailyMax" style="margin-top:6px">0</div>
-              <div class="muted2" style="margin-top:6px">Mayor número atendido por un médico en un día del mes</div>
-            </div>
-            <div class="subCard">
-              <div class="muted">Mínimo (min/día) del mes</div>
-              <div class="val" id="monthDailyMin" style="margin-top:6px">0</div>
-              <div class="muted2" style="margin-top:6px">Menor número atendido por un médico (activo) en un día del mes</div>
-            </div>
-          </div>
-
-          <div class="divider"></div>
-          <div class="muted">Mejor y peor facultativo del mes (total mensual)</div>
-
-          <div class="grid g2" style="margin-top:10px">
-            <div class="subCard">
-              <div class="muted">Más pacientes</div>
-              <div class="docName" id="monthBestName" style="margin-top:6px">—</div>
-              <div class="muted2" id="monthBestTotal" style="margin-top:6px">Total mes: 0</div>
-            </div>
-            <div class="subCard">
-              <div class="muted">Menos pacientes</div>
-              <div class="docName" id="monthWorstName" style="margin-top:6px">—</div>
-              <div class="muted2" id="monthWorstTotal" style="margin-top:6px">Total mes: 0</div>
-            </div>
-          </div>
+          <div class="rankList" id="patientsList"></div>
         </div>
       </div>
     </section>

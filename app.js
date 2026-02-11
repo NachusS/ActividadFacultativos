@@ -23,6 +23,16 @@
     return dt.toLocaleDateString("es-ES", { month:"long", year:"numeric" });
   };
 
+  function formatDateTimeES(dt){
+    if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return "—";
+    const dd = pad2(dt.getDate());
+    const mm = pad2(dt.getMonth()+1);
+    const yy = dt.getFullYear();
+    const hh = pad2(dt.getHours());
+    const mi = pad2(dt.getMinutes());
+    return `${dd}/${mm}/${yy} ${hh}:${mi}`;
+  }
+
   function escapeHtml(str){
     return String(str).replace(/[&<>"']/g, s => ({
       "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"
@@ -30,7 +40,7 @@
   }
 
   // -----------------------------
-  // Theme Toggle (persistente) — Light por defecto
+  // Theme Toggle
   // -----------------------------
   const THEME_KEY = "urg_dashboard_theme";
   function applyTheme(theme){
@@ -140,14 +150,17 @@
   let selectedMonthKey = "";
   let calMonthKey = "";
 
+  // filas base completas (sin filtro)
   let allRows = [];
   let hasHoraIn = false;
-  let hourMode = "all"; // "all" (0-23) o "8to23" (8-23)
+
+  // 3 modos v5.x
+  let hourMode = "8to23"; // "8to23" | "0to8" | "turno"
 
   function buildIndex(rows){
-    const byDateDoctor = new Map();
-    const doctorDays = new Map();
-    const dayTotal = new Map();
+    const byDateDoctor = new Map(); // dateKey -> Map(doctor -> Set(patient))
+    const doctorDays = new Map();   // doctor -> Map(dateKey -> count)
+    const dayTotal = new Map();     // dateKey -> total pacientes únicos urgencias (union Atendido)
 
     for (const r of rows){
       if (!r.dateKey || !r.doctor || !r.patient) continue;
@@ -258,30 +271,157 @@
   }
 
   // -----------------------------
-  // Filtro horario y reconstrucción
+  // v5.x: modos hora + Turno
   // -----------------------------
+  function addDaysKey(dateKey, deltaDays){
+    const [y,m,d] = dateKey.split("-").map(Number);
+    const dt = new Date(y, m-1, d);
+    dt.setDate(dt.getDate() + deltaDays);
+    return toDateKey(dt);
+  }
+
+  function hourModeLabel(){
+    if (!hasHoraIn) return "HoraIn no disponible";
+    if (hourMode === "8to23") return "HoraIn 8–23";
+    if (hourMode === "0to8") return "HoraIn 0–8";
+    return "Turno (08:00-08:00)";
+  }
+
+  function turnoWindowText(dateKey){
+    const startKey = addDaysKey(dateKey, -1);
+    return `Turno: 08:00 ${formatES(startKey)} → 08:00 ${formatES(dateKey)}`;
+  }
+
   function updateHourButton(){
     const b = $("btnHourMode");
     if (!b) return;
-    if (hourMode === "all"){
-      b.textContent = "🕒 0–23";
-      b.title = "Rango horario: 0 a 23 (sin filtro)";
-    } else {
+
+    if (!hasHoraIn){
       b.textContent = "🕒 8–23";
-      b.title = "Rango horario: 8 a 23 (incl.)";
+      b.title = "Filtro horario (requiere columna HoraIn)";
+      return;
+    }
+
+    if (hourMode === "8to23"){
+      b.textContent = "🕒 8–23";
+      b.title = "Modo: Día (HoraIn 8–23)";
+    } else if (hourMode === "0to8"){
+      b.textContent = "🕒 0–8";
+      b.title = "Modo: Noche (HoraIn 0–8)";
+    } else {
+      b.textContent = "🕒 Turno";
+      b.title = "Modo: Turno de Facultativo (08:00 día-1 → 08:00 día)";
     }
   }
 
-  function applyHourFilter(rows){
-    if (hourMode === "all") return rows;
-    return rows.filter(r => r.hour == null || (r.hour >= 8 && r.hour <= 23));
+  // Base -> Effective para índices (dashboard/calendario)
+  function deriveEffectiveRows(){
+    if (!allRows || !allRows.length) return [];
+
+    if (!hasHoraIn){
+      return allRows.map(r => ({
+        dateKey: r.baseDateKey,
+        monthKey: r.baseMonthKey,
+        doctor: r.doctor,
+        patient: r.patient
+      }));
+    }
+
+    if (hourMode === "8to23"){
+      return allRows
+        .filter(r => r.hour == null || (r.hour >= 8 && r.hour <= 23))
+        .map(r => ({
+          dateKey: r.baseDateKey,
+          monthKey: r.baseMonthKey,
+          doctor: r.doctor,
+          patient: r.patient
+        }));
+    }
+
+    if (hourMode === "0to8"){
+      return allRows
+        .filter(r => r.hour == null || (r.hour >= 0 && r.hour < 8))
+        .map(r => ({
+          dateKey: r.baseDateKey,
+          monthKey: r.baseMonthKey,
+          doctor: r.doctor,
+          patient: r.patient
+        }));
+    }
+
+    // turno
+    return allRows.map(r => ({
+      dateKey: r.turnoDateKey,
+      monthKey: r.turnoDateKey.slice(0,7),
+      doctor: r.doctor,
+      patient: r.patient
+    }));
+  }
+
+  // Base -> Effective para “Pacientes Atendidos” (necesita dt para ordenar)
+  function deriveEffectiveEventsForPatients(){
+    if (!allRows || !allRows.length) return [];
+
+    // dt real del evento: preferimos HoraIn como hora (si existe) sobre FECINGRESO (si trae hora ya)
+    const buildEventDT = (r) => {
+      if (r.dtBase instanceof Date && !Number.isNaN(r.dtBase.getTime())) {
+        // si dtBase ya trae hora real y NO hay HoraIn interpretable, usamos dtBase
+        if (r.hour == null) return r.dtBase;
+      }
+      // si hay hour, ponemos esa hora en el día base (00:00) con minutos 00
+      if (r.baseDateKey && r.hour != null){
+        const [y,m,d] = r.baseDateKey.split("-").map(Number);
+        return new Date(y, m-1, d, r.hour, 0, 0);
+      }
+      // fallback
+      return r.dtBase instanceof Date ? r.dtBase : null;
+    };
+
+    if (!hasHoraIn){
+      return allRows.map(r => ({
+        effDateKey: r.baseDateKey,
+        doctor: r.doctor,
+        patient: r.patient,
+        dt: buildEventDT(r)
+      }));
+    }
+
+    if (hourMode === "8to23"){
+      return allRows
+        .filter(r => r.hour == null || (r.hour >= 8 && r.hour <= 23))
+        .map(r => ({
+          effDateKey: r.baseDateKey,
+          doctor: r.doctor,
+          patient: r.patient,
+          dt: buildEventDT(r)
+        }));
+    }
+
+    if (hourMode === "0to8"){
+      return allRows
+        .filter(r => r.hour == null || (r.hour >= 0 && r.hour < 8))
+        .map(r => ({
+          effDateKey: r.baseDateKey,
+          doctor: r.doctor,
+          patient: r.patient,
+          dt: buildEventDT(r)
+        }));
+    }
+
+    // turno: agrupación por turnoDateKey, pero dt es el momento real
+    return allRows.map(r => ({
+      effDateKey: r.turnoDateKey,
+      doctor: r.doctor,
+      patient: r.patient,
+      dt: buildEventDT(r)
+    }));
   }
 
   function rebuildFromAllRows(){
     if (!allRows || !allRows.length) return;
 
-    const filtered = (hasHoraIn ? applyHourFilter(allRows) : allRows);
-    idx = buildIndex(filtered);
+    const effective = deriveEffectiveRows();
+    idx = buildIndex(effective);
 
     const dates = getAllDates();
     const doctors = getAllDoctors();
@@ -359,14 +499,24 @@
       const patient = normPatient(line[iA]);
       if (!doctor || !patient) continue;
 
+      const baseDateKey = toDateKey(d);
+      const baseMonthKey = toMonthKey(d);
+
       const hour = hasHoraIn ? parseHourAny(line[iH]) : null;
 
+      let turnoDateKey = baseDateKey;
+      if (hour != null){
+        turnoDateKey = (hour >= 8) ? addDaysKey(baseDateKey, 1) : baseDateKey;
+      }
+
       norm.push({
-        dateKey: toDateKey(d),
-        monthKey: toMonthKey(d),
+        baseDateKey,
+        baseMonthKey,
+        turnoDateKey,
         doctor,
         patient,
-        hour
+        hour,
+        dtBase: d
       });
     }
     if (!norm.length) toast("Sin datos útiles", "No se detectaron filas válidas. Revisa columnas y formato de fecha.");
@@ -399,14 +549,24 @@
       const patient = normPatient(row["Atendido"]);
       if (!doctor || !patient) continue;
 
+      const baseDateKey = toDateKey(d);
+      const baseMonthKey = toMonthKey(d);
+
       const hour = hasHoraIn ? parseHourAny(row["HoraIn"]) : null;
 
+      let turnoDateKey = baseDateKey;
+      if (hour != null){
+        turnoDateKey = (hour >= 8) ? addDaysKey(baseDateKey, 1) : baseDateKey;
+      }
+
       norm.push({
-        dateKey: toDateKey(d),
-        monthKey: toMonthKey(d),
+        baseDateKey,
+        baseMonthKey,
+        turnoDateKey,
         doctor,
         patient,
-        hour
+        hour,
+        dtBase: d
       });
     }
     if (!norm.length) toast("Sin datos útiles", "No se detectaron filas válidas. Revisa columnas y formato de FECINGRESO.");
@@ -414,7 +574,7 @@
   }
 
   // -----------------------------
-  // Render UI helpers
+  // Render helpers
   // -----------------------------
   function renderTop3(arr){
     const box = $("top3");
@@ -472,6 +632,63 @@
     });
   }
 
+  // ✅ v5.1: Pacientes atendidos (detalle)
+  // ✅ v5.1: Pacientes atendidos (detalle) — alineado (fecha/hora a la izquierda, Atendido a la derecha)
+function renderPatientsAttended(){
+  const list = $("patientsList");
+  const sub = $("patientsSubtitle");
+  if (!list || !sub) return;
+
+  if (!idx || !selectedDoctor || !selectedDateKey){
+    sub.textContent = "Selecciona un facultativo para ver el detalle del día";
+    list.innerHTML = `<div class="empty">Sin selección.</div>`;
+    return;
+  }
+
+  const events = deriveEffectiveEventsForPatients()
+    .filter(e => e.effDateKey === selectedDateKey && e.doctor === selectedDoctor)
+    .sort((a,b) => {
+      const ta = a.dt instanceof Date ? a.dt.getTime() : 0;
+      const tb = b.dt instanceof Date ? b.dt.getTime() : 0;
+      return ta - tb;
+    });
+
+  const modeTxt = hourModeLabel();
+  const extra = (hasHoraIn && hourMode === "turno") ? ` · ${turnoWindowText(selectedDateKey)}` : "";
+  sub.textContent = `${selectedDoctor} · ${formatES(selectedDateKey)} · ${modeTxt}${extra}`;
+
+  if (!events.length){
+    list.innerHTML = `<div class="empty">No hay atenciones para este facultativo en el día seleccionado con el filtro actual.</div>`;
+    return;
+  }
+
+  list.innerHTML = "";
+  events.forEach((e, i) => {
+    const item = document.createElement("div");
+    item.className = "rankItem";
+
+    const dtTxt = formatDateTimeES(e.dt);
+    const atendidoKey = escapeHtml(e.patient);
+
+    // Alineado: izquierda # + fecha/hora, derecha Atendido (código)
+    item.innerHTML = `
+      <div class="left">
+        <div class="docName" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <span class="tag">#${i+1}</span>
+          <span class="muted2" style="margin:0">${escapeHtml(dtTxt)}</span>
+        </div>
+      </div>
+      <div class="bigNum" style="font-weight:900">${atendidoKey}</div>
+    `;
+
+    list.appendChild(item);
+  });
+}
+
+
+  // -----------------------------
+  // Chart (sin cambios respecto a tu versión)
+  // -----------------------------
   function roundRect(ctx, x, y, w, h, r){
     if (h <= 0) return;
     const rr = Math.min(r, w/2, h/2);
@@ -620,7 +837,9 @@
     drawBarChart($("chart"), chartData);
   }
 
+  // -----------------------------
   // Calendario
+  // -----------------------------
   function renderCalendar(){
     if (!idx || !calMonthKey) return;
 
@@ -699,11 +918,19 @@
   }
 
   function renderCalRanking(){
-    $("calRankTitle").textContent = selectedDateKey ? `Top 10 — ${formatES(selectedDateKey)}` : "—";
+    const prefix =
+      (hasHoraIn && hourMode === "turno")
+        ? "Ranking (Turno) — "
+        : "Ranking (Día) — ";
+
+    $("calRankTitle").textContent = selectedDateKey ? `${prefix}${formatES(selectedDateKey)}` : "—";
     const dayArr = doctorsForDay(selectedDateKey);
     renderRanking($("calRankList"), dayArr.slice(0,10), selectedDateKey, true);
   }
 
+  // -----------------------------
+  // Refresh principal
+  // -----------------------------
   function refreshAll(){
     if (!idx || !selectedDateKey) return;
 
@@ -713,12 +940,11 @@
     $("pillDate").textContent = formatES(selectedDateKey);
     $("pillMonth").textContent = monthLabelES(selectedMonthKey);
 
-    const hourTxt = (!hasHoraIn)
-      ? "HoraIn no disponible"
-      : (hourMode === "all" ? "HoraIn 0–23" : "HoraIn 8–23");
+    const modeTxt = hourModeLabel();
+    const extra = (hasHoraIn && hourMode === "turno") ? ` · ${turnoWindowText(selectedDateKey)}` : "";
 
     $("dashSubtitle").textContent =
-      `Resumen de actividad para ${formatES(selectedDateKey)} (Atendido distinto por médico y día · ${hourTxt})`;
+      `Resumen de actividad para ${formatES(selectedDateKey)} (Atendido distinto por médico y día · ${modeTxt}${extra})`;
 
     const dayArr = doctorsForDay(selectedDateKey);
     const dayActive = dayArr.length;
@@ -734,8 +960,6 @@
     $("cardDayMin").textContent = dayMin;
 
     renderTop3(dayArr.slice(0,3));
-
-    // ✅ CAMBIO: Ranking del Dashboard = TODOS, no solo top10
     renderRanking($("rankTop10"), dayArr, selectedDateKey, true);
 
     const monthTotals = monthDoctorTotals(selectedMonthKey);
@@ -762,11 +986,13 @@
     $("monthDailyMin").textContent = Number.isFinite(mn) ? mn : 0;
 
     refreshDoctorSection();
+    renderPatientsAttended(); // ✅ v5.1
     renderCalendar();
     renderCalRanking();
     updateHourButton();
   }
 
+  // Tabs
   function setActiveTab(which){
     if (which === "dash"){
       $("tabDash").classList.add("active");
@@ -777,7 +1003,9 @@
     }
   }
 
+  // -----------------------------
   // Eventos UI
+  // -----------------------------
   $("btnUpload").addEventListener("click", ()=> $("file").click());
 
   $("file").addEventListener("change", async (ev)=>{
@@ -803,16 +1031,29 @@
     }
   });
 
+  // Botón modo horario: 8–23 -> 0–8 -> Turno -> 8–23
   $("btnHourMode").addEventListener("click", ()=>{
     if (!idx && (!allRows || !allRows.length)){
       return toast("Sin datos", "Primero carga un CSV/XLSX.");
     }
     if (!hasHoraIn){
-      return toast("HoraIn no disponible", "Tu fichero no tiene la columna HoraIn, no se puede filtrar por horas.");
+      return toast("HoraIn no disponible", "Tu fichero no tiene la columna HoraIn, no se puede filtrar por horas ni por turnos.");
     }
-    hourMode = (hourMode === "all") ? "8to23" : "all";
+
+    if (hourMode === "8to23") hourMode = "0to8";
+    else if (hourMode === "0to8") hourMode = "turno";
+    else hourMode = "8to23";
+
     rebuildFromAllRows();
-    toast("Filtro horario", hourMode === "all" ? "Mostrando HoraIn 0–23." : "Mostrando HoraIn 8–23 (incl.).");
+
+    const msg =
+      hourMode === "8to23"
+        ? "Mostrando HoraIn 8–23."
+        : hourMode === "0to8"
+          ? "Mostrando HoraIn 0–8 (0–7)."
+          : "Mostrando Turno: 08:00 día-1 → 08:00 día.";
+
+    toast("Filtro horario", msg);
   });
 
   $("btnReset").addEventListener("click", ()=>{
@@ -824,7 +1065,7 @@
 
     allRows = [];
     hasHoraIn = false;
-    hourMode = "all";
+    hourMode = "8to23";
     updateHourButton();
 
     $("pillDate").textContent = "—";
@@ -852,6 +1093,7 @@
   $("selDoctor").addEventListener("change", (e)=>{
     selectedDoctor = e.target.value;
     refreshDoctorSection();
+    renderPatientsAttended(); // ✅ v5.1
   });
 
   $("tabDash").addEventListener("click", ()=>{
