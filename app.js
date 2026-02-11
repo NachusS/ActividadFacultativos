@@ -91,21 +91,19 @@
   const normPatient = (x) => (x==null ? "" : String(x)).trim();
 
   // -----------------------------
-  // NUEVO: Parse HoraIn -> hour (0..23) o null
+  // Parse HoraIn -> hour (0..23) o null
   // -----------------------------
   function parseHourAny(v){
     if (v == null) return null;
 
-    // Date
     if (v instanceof Date && !Number.isNaN(v.getTime())) {
       const h = v.getHours();
       return (h>=0 && h<=23) ? h : null;
     }
 
-    // number: puede ser 0-23, o fracción de día tipo Excel (0..1)
     if (typeof v === "number" && Number.isFinite(v)){
       if (v >= 0 && v <= 23) return Math.floor(v);
-      if (v >= 0 && v < 1) return Math.floor(v * 24); // fracción del día
+      if (v >= 0 && v < 1) return Math.floor(v * 24);
       if (v >= 0 && v < 24.5) return Math.floor(v);
       return null;
     }
@@ -113,20 +111,17 @@
     const s = String(v).trim();
     if (!s) return null;
 
-    // "HH"
     if (/^\d{1,2}$/.test(s)){
       const h = Number(s);
       return (h>=0 && h<=23) ? h : null;
     }
 
-    // "HH:MM" o "HH:MM:SS"
     const m = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
     if (m){
       const h = Number(m[1]);
       return (h>=0 && h<=23) ? h : null;
     }
 
-    // Fecha con hora
     const d = new Date(s);
     if (!Number.isNaN(d.getTime())){
       const h = d.getHours();
@@ -145,17 +140,15 @@
   let selectedMonthKey = "";
   let calMonthKey = "";
 
-  // NUEVO: estado global de filas y modo horario
-  let allRows = [];            // filas normalizadas completas (sin filtrar por HoraIn)
-  let hasHoraIn = false;       // si el dataset tiene columna HoraIn
-  let hourMode = "all";        // "all" (0-23) o "8to23" (8-23)
+  let allRows = [];
+  let hasHoraIn = false;
+  let hourMode = "all"; // "all" (0-23) o "8to23" (8-23)
 
   function buildIndex(rows){
-    const byDateDoctor = new Map(); // dateKey -> Map(doctor -> Set(patient))
-    const doctorDays = new Map();   // doctor -> Map(dateKey -> count)
-    const dayTotal = new Map();     // dateKey -> total pacientes únicos urgencias (union Atendido)
+    const byDateDoctor = new Map();
+    const doctorDays = new Map();
+    const dayTotal = new Map();
 
-    // 1) Index por día y doctor
     for (const r of rows){
       if (!r.dateKey || !r.doctor || !r.patient) continue;
       if (!byDateDoctor.has(r.dateKey)) byDateDoctor.set(r.dateKey, new Map());
@@ -164,7 +157,6 @@
       m.get(r.doctor).add(r.patient);
     }
 
-    // 2) Total únicos por día (para degradado de calendario)
     for (const [dk, m] of byDateDoctor.entries()){
       const union = new Set();
       for (const setp of m.values()){
@@ -173,7 +165,6 @@
       dayTotal.set(dk, union.size);
     }
 
-    // 3) Días por doctor
     for (const [dk, m] of byDateDoctor.entries()){
       for (const [doc, setp] of m.entries()){
         if (!doctorDays.has(doc)) doctorDays.set(doc, new Map());
@@ -181,7 +172,6 @@
       }
     }
 
-    // 4) Totales mensuales por doctor
     const byMonthDoctor = new Map();
     for (const [doc, dmap] of doctorDays.entries()){
       for (const [dk, cnt] of dmap.entries()){
@@ -192,7 +182,6 @@
       }
     }
 
-    // 5) Max/Min por día (por doctor)
     const dayMax = new Map();
     const dayMin = new Map();
     for (const [dk, m] of byDateDoctor.entries()){
@@ -269,7 +258,7 @@
   }
 
   // -----------------------------
-  // NUEVO: aplicar filtro horario y reconstruir índice
+  // Filtro horario y reconstrucción
   // -----------------------------
   function updateHourButton(){
     const b = $("btnHourMode");
@@ -285,11 +274,10 @@
 
   function applyHourFilter(rows){
     if (hourMode === "all") return rows;
-    // 8..23 inclusive; si hour es null (no interpretable), lo dejamos pasar para no perder actividad por datos incompletos
     return rows.filter(r => r.hour == null || (r.hour >= 8 && r.hour <= 23));
   }
 
-  function rebuildFromAllRows(keepFilename){
+  function rebuildFromAllRows(){
     if (!allRows || !allRows.length) return;
 
     const filtered = (hasHoraIn ? applyHourFilter(allRows) : allRows);
@@ -298,7 +286,6 @@
     const dates = getAllDates();
     const doctors = getAllDoctors();
 
-    // mantener selección si existe
     if (selectedDateKey && !dates.includes(selectedDateKey)) {
       selectedDateKey = dates[dates.length-1] || "";
     } else if (!selectedDateKey) {
@@ -313,14 +300,12 @@
       selectedDoctor = doctors[0] || "";
     }
 
-    // actualizar selects
     $("selDate").disabled = !dates.length;
     $("selDoctor").disabled = !doctors.length;
 
     fillSelect($("selDate"), dates, formatES, selectedDateKey);
     fillSelect($("selDoctor"), doctors, (d)=>d, selectedDoctor);
 
-    // estado de vistas
     $("emptyState").style.display = "none";
     $("viewDash").style.display = "block";
 
@@ -333,15 +318,13 @@
     $("pillFile").textContent = filename || "archivo";
     $("footLeft").textContent = "Última carga: " + new Date().toLocaleString("es-ES");
 
-    // inicializar selección por defecto
     selectedDateKey = "";
     selectedDoctor = "";
     selectedMonthKey = "";
     calMonthKey = "";
 
-    // al cargar, mantenemos hourMode actual; si no hay HoraIn, será irrelevante
     updateHourButton();
-    rebuildFromAllRows(filename);
+    rebuildFromAllRows();
   }
 
   function loadFromCSVText(text, filename){
@@ -354,7 +337,7 @@
     const iF = col("FECINGRESO");
     const iM = col("NOMBMED_RES");
     const iA = col("Atendido");
-    const iH = col("HoraIn"); // NUEVO (opcional)
+    const iH = col("HoraIn");
 
     const missing = [];
     if (iF < 0) missing.push("FECINGRESO");
@@ -551,61 +534,49 @@
       ctx.fillText(String(v), 6, y);
     }
 
+    data.forEach((d, i)=>{
+      const x = padL + i*(barW+gap);
+      const bh = maxV ? (d.value/maxV)*h : 0;
+      const y = padT + (h - bh);
 
-data.forEach((d, i)=>{
-  const x = padL + i*(barW+gap);
-  const bh = maxV ? (d.value/maxV)*h : 0;
-  const y = padT + (h - bh);
+      ctx.globalAlpha = GLOW_A;
+      ctx.fillStyle = BAR;
+      roundRect(ctx, x, y-2, barW, bh+2, 10);
 
-  // Glow
-  ctx.globalAlpha = GLOW_A;
-  ctx.fillStyle = BAR;
-  roundRect(ctx, x, y-2, barW, bh+2, 10);
+      ctx.globalAlpha = BAR_A;
+      ctx.fillStyle = BAR;
+      roundRect(ctx, x, y, barW, bh, 10);
 
-  // Bar
-  ctx.globalAlpha = BAR_A;
-  ctx.fillStyle = BAR;
-  roundRect(ctx, x, y, barW, bh, 10);
+      const theme = document.documentElement.getAttribute("data-theme");
+      const labelFill = (theme === "dark")
+        ? "rgba(0,0,0,.88)"
+        : "rgba(255,255,255,.92)";
 
-  // ====== NUEVO: etiqueta centrada con valor ======
-  const theme = document.documentElement.getAttribute("data-theme");
-  const labelFill = (theme === "dark")
-    ? "rgba(0,0,0,.88)"     // barra blanca en dark -> texto oscuro
-    : "rgba(255,255,255,.92)"; // barra oscura en light -> texto claro
+      const valueStr = String(d.value);
+      const fontSize = Math.max(12, Math.min(15, Math.floor(barW * 0.35)));
+      ctx.font = `900 ${fontSize}px ui-sans-serif, system-ui`;
+      ctx.fillStyle = labelFill;
+      ctx.globalAlpha = 1;
 
-  const valueStr = String(d.value);
+      const textW = ctx.measureText(valueStr).width;
 
-  // Tamaño de texto “que se vea bien” sin invadir
-  const fontSize = Math.max(12, Math.min(15, Math.floor(barW * 0.35)));
-  ctx.font = `900 ${fontSize}px ui-sans-serif, system-ui`;
-  ctx.fillStyle = labelFill;
-  ctx.globalAlpha = 1;
+      if (bh >= fontSize + 10) {
+        const tx = x + (barW - textW)/2;
+        const ty = y + bh/2 + fontSize/3;
+        ctx.fillText(valueStr, tx, ty);
+      } else {
+        ctx.fillStyle = INK;
+        const tx = x + (barW - textW)/2;
+        const ty = y - 6;
+        ctx.fillText(valueStr, tx, ty);
+      }
 
-  const textW = ctx.measureText(valueStr).width;
-
-  // Si la barra es muy bajita, ponemos el valor encima
-  if (bh >= fontSize + 10) {
-    // Centrado dentro de la barra
-    const tx = x + (barW - textW)/2;
-    const ty = y + bh/2 + fontSize/3; // ajuste óptico
-    ctx.fillText(valueStr, tx, ty);
-  } else {
-    // Encima de la barra
-    ctx.fillStyle = INK;
-    const tx = x + (barW - textW)/2;
-    const ty = y - 6;
-    ctx.fillText(valueStr, tx, ty);
-  }
-
-  // ====== Etiqueta del eje X (día del mes) ======
-  ctx.fillStyle = INK;
-  ctx.font = "11px ui-sans-serif, system-ui";
-  const lab = String(d.day);
-  const tw = ctx.measureText(lab).width;
-  ctx.fillText(lab, x + (barW - tw)/2, padT + h + 18);
-});
-
-
+      ctx.fillStyle = INK;
+      ctx.font = "11px ui-sans-serif, system-ui";
+      const lab = String(d.day);
+      const tw = ctx.measureText(lab).width;
+      ctx.fillText(lab, x + (barW - tw)/2, padT + h + 18);
+    });
   }
 
   function refreshDoctorSection(){
@@ -649,7 +620,7 @@ data.forEach((d, i)=>{
     drawBarChart($("chart"), chartData);
   }
 
-  // -------- Calendario (TOTAL grande + MAX pequeño) --------
+  // Calendario
   function renderCalendar(){
     if (!idx || !calMonthKey) return;
 
@@ -665,7 +636,7 @@ data.forEach((d, i)=>{
 
     const [y,m] = calMonthKey.split("-").map(Number);
     const first = new Date(y, m-1, 1);
-    const firstDow = (first.getDay() + 6) % 7; // lunes=0
+    const firstDow = (first.getDay() + 6) % 7;
     const daysInMonth = new Date(y, m, 0).getDate();
 
     const totalMap = {};
@@ -742,7 +713,6 @@ data.forEach((d, i)=>{
     $("pillDate").textContent = formatES(selectedDateKey);
     $("pillMonth").textContent = monthLabelES(selectedMonthKey);
 
-    // Subtítulo con info de filtro horario
     const hourTxt = (!hasHoraIn)
       ? "HoraIn no disponible"
       : (hourMode === "all" ? "HoraIn 0–23" : "HoraIn 8–23");
@@ -764,7 +734,9 @@ data.forEach((d, i)=>{
     $("cardDayMin").textContent = dayMin;
 
     renderTop3(dayArr.slice(0,3));
-    renderRanking($("rankTop10"), dayArr.slice(0,10), selectedDateKey, true);
+
+    // ✅ CAMBIO: Ranking del Dashboard = TODOS, no solo top10
+    renderRanking($("rankTop10"), dayArr, selectedDateKey, true);
 
     const monthTotals = monthDoctorTotals(selectedMonthKey);
     const monthBest = monthTotals[0] || null;
@@ -795,7 +767,6 @@ data.forEach((d, i)=>{
     updateHourButton();
   }
 
-  // Tabs
   function setActiveTab(which){
     if (which === "dash"){
       $("tabDash").classList.add("active");
@@ -806,9 +777,7 @@ data.forEach((d, i)=>{
     }
   }
 
-  // -----------------------------
   // Eventos UI
-  // -----------------------------
   $("btnUpload").addEventListener("click", ()=> $("file").click());
 
   $("file").addEventListener("change", async (ev)=>{
@@ -834,7 +803,6 @@ data.forEach((d, i)=>{
     }
   });
 
-  // NUEVO: botón conmutador 0–23 / 8–23
   $("btnHourMode").addEventListener("click", ()=>{
     if (!idx && (!allRows || !allRows.length)){
       return toast("Sin datos", "Primero carga un CSV/XLSX.");
@@ -931,6 +899,5 @@ data.forEach((d, i)=>{
     refreshDoctorSection();
   });
 
-  // init button label
   updateHourButton();
 })();
